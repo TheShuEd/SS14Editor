@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Content.Editor.Editor;
 
@@ -15,6 +16,7 @@ internal sealed class ProtoIndexService
     private readonly string _prototypesDir;
     private readonly string _enginePrototypesDir;
     private Dictionary<string, List<ProtoIndexEntry>> _index = new();
+    private readonly object _lock = new();
 
     public const string EnginePrefix = "__engine__/";
 
@@ -24,11 +26,19 @@ internal sealed class ProtoIndexService
         _enginePrototypesDir = enginePrototypesDir;
     }
 
-    public IReadOnlyDictionary<string, List<ProtoIndexEntry>> Index => _index;
-    public int TotalCount => _index.Values.Sum(l => l.Count);
-    public int TypeCount => _index.Count;
+    public IReadOnlyDictionary<string, List<ProtoIndexEntry>> Index
+    {
+        get { lock (_lock) return _index; }
+    }
 
-    public void Rebuild()
+    public int TotalCount { get { lock (_lock) return _index.Values.Sum(l => l.Count); } }
+    public int TypeCount  { get { lock (_lock) return _index.Count; } }
+
+    public Task RebuildAsync() => Task.Run(RebuildCore);
+
+    public void Rebuild() => RebuildCore();
+
+    private void RebuildCore()
     {
         var idx = Build(_prototypesDir);
         if (Directory.Exists(_enginePrototypesDir))
@@ -40,39 +50,51 @@ internal sealed class ProtoIndexService
                 idx[type].AddRange(entries);
             }
         }
-        _index = idx;
+        lock (_lock) _index = idx;
     }
 
-    /// <summary>
-    /// Rebuilds index entries that originate from a single file. Existing entries
-    /// for that file are removed first so renames/deletions are reflected.
-    /// </summary>
-    public void RefreshFile(string fullPath, string relativePath)
-    {
-        foreach (var list in _index.Values)
-            list.RemoveAll(e => e.File == relativePath);
+    public Task RefreshFileAsync(string fullPath, string relativePath)
+        => Task.Run(() => RefreshFileCore(fullPath, relativePath));
 
-        try { YamlPrototypeScanner.Scan(fullPath, relativePath, _index); }
-        catch { /* ignore */ }
+    public void RefreshFile(string fullPath, string relativePath)
+        => RefreshFileCore(fullPath, relativePath);
+
+    private void RefreshFileCore(string fullPath, string relativePath)
+    {
+        var scratch = new Dictionary<string, List<ProtoIndexEntry>>();
+        try { YamlPrototypeScanner.Scan(fullPath, relativePath, scratch); }
+        catch { /* ignore bad files */ }
+
+        lock (_lock)
+        {
+            foreach (var list in _index.Values)
+                list.RemoveAll(e => e.File == relativePath);
+
+            foreach (var (type, entries) in scratch)
+            {
+                if (!_index.TryGetValue(type, out var list))
+                    _index[type] = list = new List<ProtoIndexEntry>();
+                list.AddRange(entries);
+            }
+        }
     }
 
     public List<ProtoSearchResult> Search(string type, string query, int limit)
     {
-        if (!_index.TryGetValue(type, out var entries))
+        List<ProtoIndexEntry> entries;
+        lock (_lock)
         {
-            // Case-insensitive fallback. Caller-provided `type` is normally
-            // derived from C# metadata (FooPrototype → "foo"), the index is
-            // keyed by the literal YAML `type:` value. The two should agree
-            // when the FooPrototype naming convention holds, but not every
-            // engine prototype follows it (e.g. ContentTileDefinition → "tile",
-            // or custom forks). Falling back here avoids empty dropdowns.
-            string? alt = null;
-            foreach (var k in _index.Keys)
+            if (!_index.TryGetValue(type, out var found))
             {
-                if (string.Equals(k, type, StringComparison.OrdinalIgnoreCase)) { alt = k; break; }
+                string? alt = null;
+                foreach (var k in _index.Keys)
+                {
+                    if (string.Equals(k, type, StringComparison.OrdinalIgnoreCase)) { alt = k; break; }
+                }
+                if (alt == null) return new();
+                found = _index[alt];
             }
-            if (alt == null) return new();
-            entries = _index[alt];
+            entries = new List<ProtoIndexEntry>(found);
         }
 
         if (string.IsNullOrWhiteSpace(query))

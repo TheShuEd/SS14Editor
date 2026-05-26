@@ -9,6 +9,7 @@ obj/
 .vs/
 .idea/
 *.swp
+*.lscache
 
 # Published binaries and release packages
 publish/

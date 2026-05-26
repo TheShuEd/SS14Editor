@@ -60,7 +60,7 @@ internal sealed partial class ApiRouter
             // Write bytes directly to guarantee LF (0x0A) on disk — bypasses
             // StreamWriter which may convert \n to \r\n on Windows.
             await File.WriteAllBytesAsync(fullPath, new UTF8Encoding(false).GetBytes(content));
-            ctx.ProtoIndex.RefreshFile(fullPath, relPath);
+            _ = ctx.ProtoIndex.RefreshFileAsync(fullPath, relPath);
             await HttpJson.WriteAsync(res, new { success = true });
         }
     }
@@ -145,7 +145,7 @@ internal sealed partial class ApiRouter
         ctx.FileWatcher.SuppressNext(fileFull);
         await File.WriteAllTextAsync(fileFull, content, new UTF8Encoding(false));
         var rel = Path.GetRelativePath(ctx.PrototypesDir, fileFull).Replace('\\', '/');
-        ctx.ProtoIndex.RefreshFile(fileFull, rel);
+        _ = ctx.ProtoIndex.RefreshFileAsync(fileFull, rel);
         await HttpJson.WriteAsync(res, new { success = true, path = rel });
     }
 

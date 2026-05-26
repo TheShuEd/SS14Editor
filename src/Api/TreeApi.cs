@@ -44,11 +44,11 @@ internal sealed partial class ApiRouter
     private Task HandleProtoIndexAsync(HttpListenerRequest req, HttpListenerResponse res)
         => HttpJson.WriteAsync(res, _ctx!.ProtoIndex.Index);
 
-    private Task HandleGitStatusAsync(HttpListenerRequest req, HttpListenerResponse res)
+    private async Task HandleGitStatusAsync(HttpListenerRequest req, HttpListenerResponse res)
     {
         var ctx = _ctx!;
-        var r = GitStatusService.Query(ctx.SolutionRoot, ctx.PrototypesDir);
-        return HttpJson.WriteAsync(res, new { available = r.Available, files = r.Files });
+        var r = await GitStatusService.QueryAsync(ctx.SolutionRoot, ctx.PrototypesDir);
+        await HttpJson.WriteAsync(res, new { available = r.Available, files = r.Files });
     }
 
     private Task HandleSearchProtosAsync(HttpListenerRequest req, HttpListenerResponse res)
@@ -59,11 +59,11 @@ internal sealed partial class ApiRouter
         return HttpJson.WriteAsync(res, _ctx!.ProtoIndex.Search(type, q, limit));
     }
 
-    private Task HandleRefreshIndexAsync(HttpListenerRequest req, HttpListenerResponse res)
+    private async Task HandleRefreshIndexAsync(HttpListenerRequest req, HttpListenerResponse res)
     {
         var ctx = _ctx!;
-        ctx.ProtoIndex.Rebuild();
-        return HttpJson.WriteAsync(res, new { count = ctx.ProtoIndex.TotalCount });
+        await ctx.ProtoIndex.RebuildAsync();
+        await HttpJson.WriteAsync(res, new { count = ctx.ProtoIndex.TotalCount });
     }
 
     private async Task HandleRenameProtoIdAsync(HttpListenerRequest req, HttpListenerResponse res)

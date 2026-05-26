@@ -81,7 +81,7 @@ internal sealed partial class ApiRouter
             return;
         }
         Directory.Move(oldFull, newFull);
-        ctx.ProtoIndex.Rebuild();
+        _ = ctx.ProtoIndex.RebuildAsync();
         var newRel = Path.GetRelativePath(ctx.PrototypesDir, newFull).Replace('\\', '/');
         Logger.Info($"Folder renamed: {oldRel} -> {newRel}");
         await HttpJson.WriteAsync(res, new { success = true, newPath = newRel });
@@ -123,7 +123,7 @@ internal sealed partial class ApiRouter
             return;
         }
         Directory.Delete(fullPath, recursive);
-        ctx.ProtoIndex.Rebuild();
+        _ = ctx.ProtoIndex.RebuildAsync();
         Logger.Info($"Folder deleted: {relPath} (recursive={recursive})");
         await HttpJson.WriteAsync(res, new { success = true });
     }

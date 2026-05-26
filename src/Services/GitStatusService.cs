@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Content.Editor.Editor;
 
@@ -29,7 +31,7 @@ internal static class GitStatusService
         public Dictionary<string, string> Files { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    public static Result Query(string solutionRoot, string prototypesDir)
+    public static async Task<Result> QueryAsync(string solutionRoot, string prototypesDir)
     {
         var result = new Result { Available = false };
         if (string.IsNullOrEmpty(solutionRoot) || !Directory.Exists(solutionRoot))
@@ -37,13 +39,13 @@ internal static class GitStatusService
 
         // Find the git work-tree root (the repo may live above SolutionRoot,
         // e.g. when the user opens a submodule or sub-folder).
-        var repoRoot = TryRun(solutionRoot, "rev-parse --show-toplevel");
+        var repoRoot = await TryRunAsync(solutionRoot, "rev-parse --show-toplevel");
         if (repoRoot == null) return result;
         repoRoot = repoRoot.Trim();
         if (string.IsNullOrEmpty(repoRoot) || !Directory.Exists(repoRoot))
             return result;
 
-        var raw = TryRun(repoRoot, "status --porcelain=v1 -z --untracked-files=all");
+        var raw = await TryRunAsync(repoRoot, "status --porcelain=v1 -z --untracked-files=all");
         if (raw == null) return result;
 
         result = new Result { Available = true };
@@ -113,7 +115,7 @@ internal static class GitStatusService
         return "modified";
     }
 
-    private static string? TryRun(string cwd, string args)
+    private static async Task<string?> TryRunAsync(string cwd, string args)
     {
         try
         {
@@ -127,10 +129,12 @@ internal static class GitStatusService
             };
             using var p = Process.Start(psi);
             if (p == null) return null;
-            var stdout = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(5000);
-            if (p.ExitCode != 0) return null;
-            return stdout;
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var stdout = await p.StandardOutput.ReadToEndAsync(cts.Token);
+            await p.WaitForExitAsync(cts.Token);
+
+            return p.ExitCode == 0 ? stdout : null;
         }
         catch
         {
